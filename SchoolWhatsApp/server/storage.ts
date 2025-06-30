@@ -1,4 +1,6 @@
 import { students, messages, type Student, type InsertStudent, type Message, type InsertMessage, users, type User, type InsertUser } from "@shared/schema";
+import { promises as fs } from 'fs';
+import path from 'path';
 
 export interface IStorage {
   // User methods (keeping from original)
@@ -23,99 +25,45 @@ export interface IStorage {
 
 
 
-// Permanent student data stored in code as JSON array format
-const PERMANENT_STUDENTS_DATA: Student[] = [
-  {
-    id: 1,
-    name: "Arjun Mehta",
-    grade: 10,
-    phone: "+919876543210",
-    studentId: "STU001",
-    notes: "Excellent student, very active in sports.",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 2,
-    name: "Priya Sharma",
-    grade: 8,
-    phone: "+918765432109",
-    studentId: "STU002",
-    notes: "Good in mathematics",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 3,
-    name: "Rahul Kumar",
-    grade: 12,
-    phone: "+917654321098",
-    studentId: "STU003",
-    notes: "Preparing for entrance exams",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 4,
-    name: "Sneha Patel",
-    grade: 6,
-    phone: "+916543210987",
-    studentId: "STU004",
-    notes: "Creative and artistic",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 5,
-    name: "Vikash Gupta",
-    grade: 9,
-    phone: "+915432109876",
-    studentId: "STU005",
-    notes: "Good in science subjects",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 6,
-    name: "Ananya Singh",
-    grade: 11,
-    phone: "+919123456789",
-    studentId: "STU006",
-    notes: "Strong leadership skills",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 7,
-    name: "Karan Joshi",
-    grade: 7,
-    phone: "+918234567890",
-    studentId: "STU007",
-    notes: "Talented in music and arts",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 8,
-    name: "Meera Reddy",
-    grade: 9,
-    phone: "+917345678901",
-    studentId: "STU008",
-    notes: "Excellent in science competitions",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 9,
-    name: "Rohan Agarwal",
-    grade: 10,
-    phone: "+916456789012",
-    studentId: "STU009",
-    notes: "Future engineer, loves robotics",
-    createdAt: new Date("2025-01-01T00:00:00Z")
-  },
-  {
-    id: 10,
-    name: "Ishita Bansal",
-    grade: 8,
-    phone: "+915567890123",
-    studentId: "STU010",
-    notes: "Creative writer and debater",
-    createdAt: new Date("2025-01-01T00:00:00Z")
+// Permanent student data file path
+const STUDENTS_DATA_FILE = path.join(process.cwd(), 'data', 'students.json');
+
+// Function to ensure data directory exists
+async function ensureDataDirectory() {
+  const dataDir = path.join(process.cwd(), 'data');
+  try {
+    await fs.access(dataDir);
+  } catch {
+    await fs.mkdir(dataDir, { recursive: true });
   }
-];
+}
+
+// Function to load students from JSON file
+async function loadStudentsFromFile(): Promise<Student[]> {
+  try {
+    await ensureDataDirectory();
+    const data = await fs.readFile(STUDENTS_DATA_FILE, 'utf-8');
+    const students = JSON.parse(data);
+    return students.map((s: any) => ({
+      ...s,
+      createdAt: new Date(s.createdAt)
+    }));
+  } catch (error) {
+    // If file doesn't exist or is empty, return empty array
+    return [];
+  }
+}
+
+// Function to save students to JSON file
+async function saveStudentsToFile(students: Student[]): Promise<void> {
+  try {
+    await ensureDataDirectory();
+    const data = JSON.stringify(students, null, 2);
+    await fs.writeFile(STUDENTS_DATA_FILE, data, 'utf-8');
+  } catch (error) {
+    console.error('Error saving students to file:', error);
+  }
+}
 
 export class PermanentMemStorage implements IStorage {
   private users: Map<number, User>;
@@ -124,23 +72,35 @@ export class PermanentMemStorage implements IStorage {
   private currentUserId: number;
   private currentStudentId: number;
   private currentMessageId: number;
+  private initialized: boolean = false;
 
   constructor() {
     this.users = new Map();
     this.students = new Map();
     this.messages = new Map();
     this.currentUserId = 1;
-    this.currentStudentId = 11; // Start from 11 since we have 10 permanent students
+    this.currentStudentId = 1;
     this.currentMessageId = 1;
-    
-    this.initializePermanentData();
   }
 
-  private initializePermanentData() {
-    // Load permanent student data into memory
-    PERMANENT_STUDENTS_DATA.forEach(student => {
+  private async initializeData() {
+    if (this.initialized) return;
+    
+    // Load students from file
+    const savedStudents = await loadStudentsFromFile();
+    savedStudents.forEach(student => {
       this.students.set(student.id, student);
+      if (student.id >= this.currentStudentId) {
+        this.currentStudentId = student.id + 1;
+      }
     });
+    
+    this.initialized = true;
+  }
+
+  private async saveStudents() {
+    const students = Array.from(this.students.values());
+    await saveStudentsToFile(students);
   }
 
   // User methods
@@ -161,18 +121,22 @@ export class PermanentMemStorage implements IStorage {
 
   // Student methods
   async getStudents(): Promise<Student[]> {
+    await this.initializeData();
     return Array.from(this.students.values());
   }
 
   async getStudent(id: number): Promise<Student | undefined> {
+    await this.initializeData();
     return this.students.get(id);
   }
 
   async getStudentsByGrade(grade: number): Promise<Student[]> {
+    await this.initializeData();
     return Array.from(this.students.values()).filter(student => student.grade === grade);
   }
 
   async createStudent(insertStudent: InsertStudent): Promise<Student> {
+    await this.initializeData();
     const id = this.currentStudentId++;
     const student: Student = {
       ...insertStudent,
@@ -181,10 +145,12 @@ export class PermanentMemStorage implements IStorage {
       createdAt: new Date(),
     };
     this.students.set(id, student);
+    await this.saveStudents();
     return student;
   }
 
   async updateStudent(id: number, updateData: Partial<InsertStudent>): Promise<Student | undefined> {
+    await this.initializeData();
     const student = this.students.get(id);
     if (!student) {
       return undefined;
@@ -192,14 +158,21 @@ export class PermanentMemStorage implements IStorage {
     
     const updatedStudent: Student = { ...student, ...updateData };
     this.students.set(id, updatedStudent);
+    await this.saveStudents();
     return updatedStudent;
   }
 
   async deleteStudent(id: number): Promise<boolean> {
-    return this.students.delete(id);
+    await this.initializeData();
+    const result = this.students.delete(id);
+    if (result) {
+      await this.saveStudents();
+    }
+    return result;
   }
 
   async searchStudents(query: string): Promise<Student[]> {
+    await this.initializeData();
     const lowerQuery = query.toLowerCase();
     return Array.from(this.students.values()).filter(student =>
       student.name.toLowerCase().includes(lowerQuery) ||
